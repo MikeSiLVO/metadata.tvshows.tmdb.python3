@@ -115,7 +115,18 @@ def _find(handle, api, params, _settings):
         show_id = show.get('id')
         if not name or not show_id:
             continue
-        li = xbmcgui.ListItem(name, offscreen=True)
+        # Disambiguate: "Show Name (2023, US)"
+        label = name
+        parts = []
+        aired = show.get('first_air_date', '')
+        if aired and len(aired) >= 4:
+            parts.append(aired[:4])
+        origins = show.get('origin_country', [])
+        if origins:
+            parts.append(origins[0])
+        if parts:
+            label = '{} ({})'.format(name, ', '.join(parts))
+        li = xbmcgui.ListItem(label, offscreen=True)
         vtag = li.getVideoInfoTag()
         vtag.setTitle(name)
         vtag.setOriginalTitle(show.get('original_name', ''))
