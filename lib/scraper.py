@@ -4,7 +4,6 @@
 
 import json
 import re
-from difflib import SequenceMatcher
 
 import xbmc
 import xbmcgui
@@ -44,8 +43,8 @@ _SEARCH_IMDB = re.compile(r'^(tt\d+)$|^imdb/(tt\d+)$', re.IGNORECASE)
 _SEARCH_TMDB = re.compile(r'^tmdb/(\d+)$', re.IGNORECASE)
 _SEARCH_TVDB = re.compile(r'^tvdb/(\d+)$', re.IGNORECASE)
 
-# Trailing parenthetical: "(US)", "(UK)", "(2023)", etc.
-_RE_PAREN_SUFFIX = re.compile(r'\s+\(([^)]+)\)$')
+# Trailing parenthetical: "(US)", "(UK)", "(2023)", or broken "(US" from Kodi
+_RE_PAREN_SUFFIX = re.compile(r'\s+\(([^)]+)\)?$')
 
 _FIND_SOURCES = ['imdb', 'tvdb']
 
@@ -91,7 +90,7 @@ def _find(handle, api, params, _settings):
         clean_title = title[:paren.start()].strip()
         if len(inner) == 2 and inner.isalpha():
             country_hint = inner.upper()
-        elif inner.isdigit() and not year:
+        elif len(inner) == 4 and inner.isdigit() and not year:
             year = inner
 
     # Search by external ID if title looks like one
@@ -312,22 +311,49 @@ def _nfo_url(handle, params):
 
 # --- helpers ---
 
+def _title_relevance(query, title):
+    """Score how well query matches title as a search term.
+
+    Exact match = 1.0, query is title prefix = 0.95, query contained = 0.8,
+    all query words present = 0.6, else 0.0.
+    """
+    q = query.lower()
+    t = title.lower()
+    if not q or not t:
+        return 0.0
+    if q == t:
+        return 1.0
+    # Query is a prefix up to a word boundary (colon, dash, space)
+    if t.startswith(q) and (len(t) == len(q) or t[len(q)] in ':- '):
+        return 0.95
+    if q in t:
+        return 0.8
+    # All query words present in title
+    qwords = q.split()
+    if qwords and all(w in t for w in qwords):
+        return 0.6
+    return 0.0
+
+
 def _search_relevance(name, original_name, first_air_date, query_lower,
                       query_year, origin_country=None, country_hint=''):
-    """Score 0.0–3.0: title similarity + year proximity + country match."""
-    # Best title match (name or original_name)
-    title_score = SequenceMatcher(None, query_lower, name.lower()).ratio()
+    """Score title + year + country match. Range roughly -0.6 to 3.0."""
+    title_score = _title_relevance(query_lower, name)
     if original_name:
-        alt = SequenceMatcher(None, query_lower, original_name.lower()).ratio()
+        alt = _title_relevance(query_lower, original_name)
         if alt > title_score:
             title_score = alt
+    has_date = first_air_date and len(first_air_date) >= 4
     year_score = 0.0
-    if query_year and first_air_date and len(first_air_date) >= 4:
+    if query_year and has_date:
         try:
             result_year = int(first_air_date[:4])
             year_score = max(0.0, 1.0 - 0.5 * abs(query_year - result_year))
         except ValueError:
             pass
+    # Stub entries with no air date rank below complete entries
+    if not has_date:
+        year_score = -0.1
     country_score = 0.0
     if country_hint and origin_country:
         country_score = 1.0 if country_hint in origin_country else -0.5
