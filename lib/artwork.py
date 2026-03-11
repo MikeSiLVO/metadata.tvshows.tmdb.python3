@@ -144,7 +144,7 @@ def _classify_images(candidates, images, bucket_key, season, user_lang,
         candidates.append(entry)
 
     # Sort language-sensitive buckets in-place (only the slice we just added)
-    for art in ('poster', 'landscape', 'clearlogo', 'banner'):
+    for art in ('poster', 'landscape', 'clearlogo', 'banner', 'clearart'):
         bk = (bucket_key, art)
         _sort_bucket_slice(candidates, start, bk, user_lang)
 
