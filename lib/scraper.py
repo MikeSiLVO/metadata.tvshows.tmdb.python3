@@ -81,7 +81,7 @@ def _find(handle, api, params, _settings):
     title = params.get('title', '')
     year = params.get('year', '')
 
-    # Strip parenthetical suffix — TMDB search fails with "(US)" etc.
+    # TMDB search returns garbage with "(US)" etc. in the query
     country_hint = ''
     clean_title = title
     paren = _RE_PAREN_SUFFIX.search(title)
@@ -94,9 +94,12 @@ def _find(handle, api, params, _settings):
             year = inner
 
     # Search by external ID if title looks like one
-    results = _search_by_external_id(api, title)
+    results = _search_by_external_id(api, clean_title)
     if results is None:
         results = api.search_shows(clean_title, year)
+        # Year might be off-by-one in folder name, retry unfiltered
+        if not results and year:
+            results = api.search_shows(clean_title)
 
     # Sort by title similarity + year proximity so Kodi auto-selects best match
     query_year = int(year) if year and year.isdigit() else 0
@@ -271,8 +274,7 @@ def _getartwork(handle, api, params, settings):
 def _nfo_url(handle, params):
     nfo = params.get('nfo', '')
 
-    # Complete NFOs have unique IDs — Kodi handles all data (including
-    # named seasons) directly from the XML, no scraper calls needed
+    # Kodi handles complete NFOs (with <uniqueid>) itself, skip
     if '<uniqueid' in nfo:
         xbmcplugin.endOfDirectory(handle)
         return
@@ -283,7 +285,7 @@ def _nfo_url(handle, params):
         xbmcplugin.endOfDirectory(handle)
         return
 
-    # URL-only NFO — need API for ID conversion
+    # IMDB/TVDB URLs need conversion to TMDB ID via /find
     if provider in ('imdb', 'tvdb'):
         settings = get_settings(params)
         log.init(settings.get('verbose_log', False))
@@ -309,18 +311,27 @@ def _nfo_url(handle, params):
     xbmcplugin.endOfDirectory(handle)
 
 
-# --- helpers ---
+
+_RE_PUNCT = re.compile(r'[:\-,.!?…\u2013\u2014\']+')
+
+
+def _normalize(text):
+    return ' '.join(_RE_PUNCT.sub(' ', text).split())
+
 
 def _title_relevance(query, title):
-    """Score how well query matches title as a search term.
-
-    Exact match = 1.0, query is title prefix = 0.95, query contained = 0.8,
-    all query words present = 0.6, else 0.0.
-    """
+    """0.0-1.0: exact=1.0, prefix=0.95, contained=0.8, all words=0.6."""
     q = query.lower()
     t = title.lower()
     if not q or not t:
         return 0.0
+    score = _title_match(q, t)
+    if score >= 0.6:
+        return score
+    return _title_match(_normalize(q), _normalize(t))
+
+
+def _title_match(q, t):
     if q == t:
         return 1.0
     # Query is a prefix up to a word boundary (colon, dash, space)
@@ -398,7 +409,7 @@ def _resolve_show_id(api, params):
             tmdb_id = ids.get('tmdb', '')
             if tmdb_id:
                 return str(tmdb_id), '', {}
-            # No TMDB ID — try external IDs via /find
+            # Fall back to IMDB/TVDB lookup
             for source in _FIND_SOURCES:
                 ext_id = ids.get(source, '')
                 if ext_id:
@@ -481,7 +492,7 @@ def _parse_nfo(nfo):
 
     match = _NFO_TVDB.search(nfo)
     if match:
-        # Groups are alternatives — first non-None is the ID
+        # Regex has multiple capture groups for different URL formats
         tvdb_id = match.group(1) or match.group(2) or \
             match.group(3) or match.group(4)
         return tvdb_id, 'tvdb', '', named_seasons

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <addon id="metadata.tvshows.tmdb.python3"
   name="TMDb TV Shows python3"
-  version="1.0.2"
+  version="1.0.3"
   provider-name="MikeSiLVO">
   <requires>
     <import addon="xbmc.python" version="3.0.0"/>
@@ -18,7 +18,8 @@
     <website>https://www.themoviedb.org</website>
     <summary lang="en_GB">Fetch TV show metadata from themoviedb.org</summary>
     <description lang="en_GB">TMDB TV show scraper with improved artwork handling.</description>
-    <news>v1.0.2 - Fix search result ordering and broken folder name parsing
+    <news>v1.0.3 - Punctuation agnostic title matching, year filter fallback, tweaks to external ID search, fix Fanart.tv cache growth
+      v1.0.2 - Fix search result ordering and broken folder name parsing
       v1.0.1 - Add more details to manual scrape selection
       v1.0.0 - Initial release</news>
   </extension>

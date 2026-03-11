@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Trakt API client — show and episode ratings."""
+"""Trakt API client for show and episode ratings."""
 
 import json
 from collections import OrderedDict
@@ -17,10 +17,9 @@ _HEADERS = dict(API_HEADERS, **{
     'trakt-api-key': TRAKT_CLIENTID,
 })
 
-# (imdb_id, season, episode) → (rating, votes)
+# Per-episode rating cache, keyed by (imdb_id, season, episode)
 # Survives between plugin calls via reuselanguageinvoker=true
 _episode_cache = {}
-# OrderedDict for LRU eviction — oldest entries dropped when size exceeds limit
 _cached_shows = OrderedDict()
 
 
@@ -49,6 +48,9 @@ def prefetch_season_ratings(imdb_id, season):
         rating = ep.get('rating')
         votes = ep.get('votes')
         if rating is not None and votes:
+            # Safety net if _cached_shows eviction is ever broken
+            if len(_episode_cache) >= 50000:
+                _episode_cache.clear()
             _episode_cache[(imdb_id, season, ep_num)] = (
                 float(rating), int(votes)
             )

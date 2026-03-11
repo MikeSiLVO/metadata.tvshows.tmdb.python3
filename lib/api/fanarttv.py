@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Fanart.tv integration — fetch and merge additional artwork types."""
+"""Fanart.tv client: fetch and merge banners, clearart, characterart, etc."""
 
 import json
 from urllib.request import Request, urlopen
@@ -8,9 +8,6 @@ from urllib.parse import urlencode
 
 from lib import log
 from lib.config import API_HEADERS, FANARTTV_BASE, FANARTTV_KEY, FANARTTV_MAPPING
-
-
-_no_data = set()
 
 
 def merge_fanarttv_artwork(show_info, settings):
@@ -29,12 +26,9 @@ def merge_fanarttv_artwork(show_info, settings):
     tvdb_id = show_info.get('external_ids', {}).get('tvdb_id')
     if not tvdb_id:
         return
-    if tvdb_id in _no_data:
-        return
 
     data = _fetch(tvdb_id, settings.get('fanarttv_clientkey', ''))
     if not data:
-        _no_data.add(tvdb_id)
         return
 
     show_info['_fanarttv_merged'] = True

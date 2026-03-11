@@ -17,7 +17,6 @@ from lib.config import API_HEADERS, TMDB_API_KEY, get_cache_limit
 _BASE = 'https://api.themoviedb.org/3'
 _MAX_APPENDS = 20
 # {show_id: {'show': dict, 'episodes': {(s,e): dict}, 'season_cast': {s: list}}}
-# OrderedDict for LRU eviction — oldest entries dropped when size exceeds limit
 _cache = OrderedDict()
 
 
