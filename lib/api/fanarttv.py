@@ -13,10 +13,8 @@ from lib.config import API_HEADERS, FANARTTV_BASE, FANARTTV_KEY, FANARTTV_MAPPIN
 def merge_fanarttv_artwork(show_info, settings):
     """Merge Fanart.tv images into show_info's images dicts.
 
-    Fetches artwork from Fanart.tv using the TVDB ID, filters by language,
-    and appends entries to show-level and season-level image dicts.
-    Entries are marked with type='fanarttv' so artwork.py uses the full
-    URL directly instead of prepending TMDB image base paths.
+    Entries have type='fanarttv' so artwork.py uses the raw URL
+    instead of prepending TMDB image paths.
     """
     if not settings.get('enable_fanarttv'):
         return

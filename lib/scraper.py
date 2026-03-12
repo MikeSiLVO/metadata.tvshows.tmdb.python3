@@ -446,11 +446,7 @@ def _resolve_show_id(api, params):
 
 
 def _resolve_episode_guide(api, params):
-    """Extract (show_id, ep_grouping) from episode guide JSON or URL.
-
-    Handles cross-scraper episode guides by converting external IDs
-    (imdb, tvdb) to TMDB IDs via the /find endpoint.
-    """
+    """Extract (show_id, ep_grouping) from episode guide JSON or URL."""
     url = params.get('url', '')
     if not url:
         return '', ''

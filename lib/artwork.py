@@ -2,14 +2,9 @@
 
 """Artwork classification, scoring, and byte-aware selection.
 
-Images are split by art type BEFORE any trimming occurs. A scoring
-function weighted by data maturity ranks images across all types.
-Two independent byte budgets enforce the MySQL TEXT column limit:
-  c06 (addAvailableArtwork): poster, keyart, landscape, clearlogo, season art
-  c11 (setAvailableFanart): fanart only
+Images are classified by art type, ranked by language then pixels,
+and limited to byte budgets (c06/c11) to enforce MySQL TEXT limit.
 """
-
-import math
 
 _IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
 _IMG_W500 = 'https://image.tmdb.org/t/p/w500'
@@ -21,8 +16,8 @@ _C11_BUDGET = 60000
 _C11_WRAPPER = 17  # <fanart></fanart>
 
 _SPARSE_THRESHOLD = 3
-_MAX_4K_PIXELS = 3840 * 2160
-_VOTE_NORM = math.log1p(100)
+_TEXT_BEARING = frozenset(('poster', 'landscape', 'clearlogo', 'banner', 'clearart'))
+_LANG_TIER_WEIGHT = 10 ** 15
 
 
 def set_artwork(li, show_info, settings):
@@ -47,17 +42,19 @@ def set_artwork(li, show_info, settings):
                 snum, snum, user_lang, cat_kart, cat_land,
             )
 
-    # Score all candidates
-    density = _calc_vote_density(candidates)
-    bucket_sizes = {}
+    # Score all candidates: language tier primary for text-bearing types,
+    # then pixel area with vote count as tiebreaker
     for c in candidates:
-        bucket_sizes[c['bucket']] = bucket_sizes.get(c['bucket'], 0) + 1
-    bucket_pos = {}
-    for c in candidates:
-        b = c['bucket']
-        pos = bucket_pos.get(b, 0)
-        c['score'] = _score(c, pos, bucket_sizes[b], density)
-        bucket_pos[b] = pos + 1
+        base = _score(c)
+        if c['art_type'] == 'clearlogo':
+            pixels = min((c.get('width') or 0) * (c.get('height') or 0), 800 * 310)
+            base = pixels * 1000 + (c.get('vote_count') or 0)
+            if c.get('url', '').startswith('https://assets.fanart.tv/'):
+                base += 10 ** 9
+        if c['art_type'] in _TEXT_BEARING:
+            tier = _lang_sort_key(c.get('language'), user_lang)[0]
+            base += (4 - tier) * _LANG_TIER_WEIGHT
+        c['score'] = base
 
     # Select within byte budgets
     c06 = [c for c in candidates if c['column'] == 'c06']
@@ -84,12 +81,7 @@ def set_artwork(li, show_info, settings):
 
 def _classify_images(candidates, images, bucket_key, season, user_lang,
                      cat_kart, cat_land):
-    """Classify images and append to candidates list.
-
-    Args:
-        bucket_key: 'show' for show-level, season number for per-season.
-        season: None for show-level, season number for per-season.
-    """
+    """Classify images and append to candidates list."""
     start = len(candidates)
 
     for raw in images.get('posters', []):
@@ -162,6 +154,7 @@ def _select(entries, byte_budget):
     overflow = []
     for bucket_entries in buckets.values():
         if len(bucket_entries) <= _SPARSE_THRESHOLD:
+            bucket_entries.sort(key=lambda e: e['score'], reverse=True)
             selected.extend(bucket_entries)
         else:
             overflow.extend(bucket_entries)
@@ -204,32 +197,12 @@ def _byte_cost(entry):
     return cost
 
 
-def _score(entry, position, bucket_size, vote_density):
-    """Marginal value score, weighted by data maturity."""
-    va = entry.get('vote_average') or 0
-    vc = entry.get('vote_count') or 0
+def _score(entry):
+    """Pixel area with vote count as tiebreaker."""
     w = entry.get('width') or 0
     h = entry.get('height') or 0
-
-    res = min((w * h) / _MAX_4K_PIXELS, 1.0)
-    conf = math.log1p(vc) / _VOTE_NORM
-    vote = (va / 10.0) * min(conf, 1.0)
-    pos = 1.0 / (1.0 + position * 0.5)
-    scarce = 1.0 / (1.0 + bucket_size * 0.1)
-
-    # Shift weights based on how much vote data exists
-    if vote_density < 0.2:
-        return 0.45 * res + 0.05 * vote + 0.35 * pos + 0.15 * scarce
-    if vote_density < 0.5:
-        return 0.30 * res + 0.25 * vote + 0.30 * pos + 0.15 * scarce
-    return 0.20 * res + 0.40 * vote + 0.25 * pos + 0.15 * scarce
-
-
-def _calc_vote_density(candidates):
-    if not candidates:
-        return 0
-    voted = sum(1 for c in candidates if c.get('vote_count', 0) > 0)
-    return voted / len(candidates)
+    vc = entry.get('vote_count') or 0
+    return w * h * 1000 + vc
 
 
 def _make_entry(raw_image, preview_base):
@@ -247,7 +220,6 @@ def _make_entry(raw_image, preview_base):
         'url': url,
         'preview': preview,
         'language': raw_image.get('iso_639_1'),
-        'vote_average': raw_image.get('vote_average') or 0,
         'vote_count': raw_image.get('vote_count') or 0,
         'width': raw_image.get('width') or 0,
         'height': raw_image.get('height') or 0,

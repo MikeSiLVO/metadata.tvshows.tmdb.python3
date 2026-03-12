@@ -102,12 +102,7 @@ class TmdbApi:
                     season_map[snum]['images'] = images
 
     def prefetch_episodes(self, show_id):
-        """Pre-fetch all episode data for the entire show.
-
-        Phase 1: Full season data via show endpoint (up to 20 seasons/call).
-        Phase 2: Episode images + external_ids + season credits via
-                 season endpoint (9-10 episodes/call).
-        """
+        """Pre-fetch all episode data for the entire show."""
         show_id = str(show_id)
         entry = _cache.setdefault(show_id, {})
         if entry.get('episodes'):
