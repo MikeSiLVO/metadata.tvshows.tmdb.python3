@@ -70,18 +70,16 @@ def merge_fanarttv_artwork(show_info, settings):
             if is_season:
                 season_val = item.get('season', '')
                 if season_val == '' or season_val is None or season_val == 'all':
-                    for season in seasons:
-                        imgs = season.setdefault('images', {})
-                        imgs.setdefault(dict_key, []).append(dict(entry))
+                    snum = 0
                 else:
                     try:
                         snum = int(season_val)
                     except (ValueError, TypeError):
                         continue
-                    season = season_map.get(snum)
-                    if season:
-                        imgs = season.setdefault('images', {})
-                        imgs.setdefault(dict_key, []).append(entry)
+                season = season_map.get(snum)
+                if season:
+                    imgs = season.setdefault('images', {})
+                    imgs.setdefault(dict_key, []).append(entry)
             else:
                 imgs = show_info.setdefault('images', {})
                 imgs.setdefault(dict_key, []).append(entry)
