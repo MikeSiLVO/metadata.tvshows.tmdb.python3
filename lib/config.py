@@ -91,6 +91,7 @@ def get_settings(params=None):
         'keywords_as_tags': _bool('keywords_tags', True),
         'cat_landscape': _bool('art_landscape', True),
         'cat_keyart': _bool('art_keyart', True),
+        'prefer_maxres': _bool('art_prefer_maxres'),
         'studio_country': _bool('studio_origin'),
         'enable_trailer': _bool('trailer_enabled', True),
         'trailer_player': _str('trailer_player', 'Tubed'),

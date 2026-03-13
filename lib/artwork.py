@@ -2,8 +2,9 @@
 
 """Artwork classification, scoring, and byte-aware selection.
 
-Images are classified by art type, ranked by language then pixels,
-and limited to byte budgets (c06/c11) to enforce MySQL TEXT limit.
+Images are classified by art type, ranked by language tier then
+quality tier (voted+HD > voted > unvoted), and limited to byte
+budgets (c06/c11) to enforce MySQL TEXT limit.
 """
 
 _IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
@@ -17,7 +18,7 @@ _C11_WRAPPER = 17  # <fanart></fanart>
 
 _SPARSE_THRESHOLD = 3
 _TEXT_BEARING = frozenset(('poster', 'landscape', 'clearlogo', 'banner', 'clearart'))
-_LANG_TIER_WEIGHT = 10 ** 15
+_HD_PIXELS = 1920 * 1080
 
 
 def set_artwork(li, show_info, settings):
@@ -27,7 +28,6 @@ def set_artwork(li, show_info, settings):
     cat_kart = settings.get('cat_keyart', True)
     cat_land = settings.get('cat_landscape', True)
 
-    # Build flat list of all candidate images with metadata
     candidates = []
     _classify_images(
         candidates, show_info.get('images', {}),
@@ -42,27 +42,25 @@ def set_artwork(li, show_info, settings):
                 snum, snum, user_lang, cat_kart, cat_land,
             )
 
-    # Score all candidates: language tier primary for text-bearing types,
-    # then pixel area with vote count as tiebreaker
+    prefer_maxres = settings.get('prefer_maxres', False)
     for c in candidates:
-        base = _score(c)
         if c['art_type'] == 'clearlogo':
+            is_fanart = c.get('url', '').startswith('https://assets.fanart.tv/')
             pixels = min((c.get('width') or 0) * (c.get('height') or 0), 800 * 310)
-            base = pixels * 1000 + (c.get('vote_count') or 0)
-            if c.get('url', '').startswith('https://assets.fanart.tv/'):
-                base += 10 ** 9
+            base = (is_fanart, pixels, c.get('vote_count') or 0)
+        else:
+            base = _score(c, prefer_maxres)
         if c['art_type'] in _TEXT_BEARING:
-            tier = _lang_sort_key(c.get('language'), user_lang)[0]
-            base += (4 - tier) * _LANG_TIER_WEIGHT
-        c['score'] = base
+            lang_tier = 4 - _lang_sort_key(c.get('language'), user_lang)[0]
+            c['score'] = (lang_tier,) + base
+        else:
+            c['score'] = base
 
-    # Select within byte budgets
     c06 = [c for c in candidates if c['column'] == 'c06']
     c11 = [c for c in candidates if c['column'] == 'c11']
     keep_c06 = _select(c06, _C06_BUDGET)
     keep_c11 = _select(c11, _C11_BUDGET - _C11_WRAPPER)
 
-    # Output
     fanart_urls = []
     for c in keep_c11:
         fanart_urls.append({'image': c['url']})
@@ -135,7 +133,6 @@ def _classify_images(candidates, images, bucket_key, season, user_lang,
                      bucket=(bucket_key, 'landscape'))
         candidates.append(entry)
 
-    # Sort language-sensitive buckets in-place (only the slice we just added)
     for art in ('poster', 'landscape', 'clearlogo', 'banner', 'clearart'):
         bk = (bucket_key, art)
         _sort_bucket_slice(candidates, start, bk, user_lang)
@@ -197,12 +194,33 @@ def _byte_cost(entry):
     return cost
 
 
-def _score(entry):
-    """Pixel area with vote count as tiebreaker."""
+def _score(entry, prefer_maxres=False):
+    """Comparable tuple: (quality_tier, primary, secondary, tiebreaker).
+
+    Tiers: voted+HD(3) > voted(2) > unvoted+HD(1) > unvoted(0).
+    Tier 3 sorts by vote_average unless prefer_maxres, rest by pixels.
+    """
     w = entry.get('width') or 0
     h = entry.get('height') or 0
+    pixels = w * h
+    va = entry.get('vote_average') or 0
     vc = entry.get('vote_count') or 0
-    return w * h * 1000 + vc
+
+    voted = vc > 0
+    hd = pixels >= _HD_PIXELS
+
+    if voted and hd:
+        tier = 3
+    elif voted:
+        tier = 2
+    elif hd:
+        tier = 1
+    else:
+        tier = 0
+
+    if tier == 3 and not prefer_maxres:
+        return (tier, va, pixels, vc)
+    return (tier, pixels, va, vc)
 
 
 def _make_entry(raw_image, preview_base):
@@ -220,6 +238,7 @@ def _make_entry(raw_image, preview_base):
         'url': url,
         'preview': preview,
         'language': raw_image.get('iso_639_1'),
+        'vote_average': raw_image.get('vote_average') or 0,
         'vote_count': raw_image.get('vote_count') or 0,
         'width': raw_image.get('width') or 0,
         'height': raw_image.get('height') or 0,
