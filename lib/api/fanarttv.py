@@ -4,7 +4,7 @@
 
 import json
 from urllib.request import Request, urlopen
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from lib import log
 from lib.config import API_HEADERS, FANARTTV_BASE, FANARTTV_KEY, FANARTTV_MAPPING
@@ -58,7 +58,7 @@ def merge_fanarttv_artwork(show_info, settings):
                 likes = width = height = 0
 
             entry = {
-                'file_path': item.get('url', ''),
+                'file_path': _safe_url(item.get('url', '')),
                 'iso_639_1': lang if lang and lang != '00' else None,
                 'vote_average': 0,
                 'vote_count': likes,
@@ -83,6 +83,14 @@ def merge_fanarttv_artwork(show_info, settings):
             else:
                 imgs = show_info.setdefault('images', {})
                 imgs.setdefault(dict_key, []).append(entry)
+
+
+def _safe_url(url):
+    """Encode spaces and special chars in URL path (some Fanart.tv URLs have them)."""
+    parts = url.split('/', 3)
+    if len(parts) == 4:
+        parts[3] = quote(parts[3], safe='/')
+    return '/'.join(parts)
 
 
 def _fetch(tvdb_id, client_key):
