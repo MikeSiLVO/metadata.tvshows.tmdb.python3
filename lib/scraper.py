@@ -20,7 +20,7 @@ from lib.api.trakt import get_show_rating as trakt_show, \
 from lib.config import get_settings
 
 _NFO_TMDB = re.compile(
-    r'(?:themoviedb\.org|tmdb\.org)(?:/\w{2})?/tv/(\d+)'
+    r'(?:themoviedb\.org|tmdb\.org)(?:/\w{2})?/tv/(\d+)[^/]*'
     r'(?:/episode_groups?/([a-f0-9]+))?'
 )
 _NFO_TVDB = re.compile(
