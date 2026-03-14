@@ -7,6 +7,8 @@ quality tier (voted+HD > voted > unvoted), and limited to byte
 budgets (c06/c11) to enforce MySQL TEXT limit.
 """
 
+from math import sqrt
+
 _IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
 _IMG_W500 = 'https://image.tmdb.org/t/p/w500'
 _IMG_W780 = 'https://image.tmdb.org/t/p/w780'
@@ -31,7 +33,7 @@ def set_artwork(li, show_info, settings):
     candidates = []
     _classify_images(
         candidates, show_info.get('images', {}),
-        'show', None, user_lang, cat_kart, cat_land,
+        None, cat_kart, cat_land,
     )
     for season in show_info.get('seasons', []):
         snum = season.get('season_number', 0)
@@ -39,7 +41,7 @@ def set_artwork(li, show_info, settings):
         if simages:
             _classify_images(
                 candidates, simages,
-                snum, snum, user_lang, cat_kart, cat_land,
+                snum, cat_kart, cat_land,
             )
 
     prefer_maxres = settings.get('prefer_maxres', False)
@@ -77,22 +79,17 @@ def set_artwork(li, show_info, settings):
         vtag.addAvailableArtwork(c['url'], **kwargs)
 
 
-def _classify_images(candidates, images, bucket_key, season, user_lang,
-                     cat_kart, cat_land):
+def _classify_images(candidates, images, season, cat_kart, cat_land):
     """Classify images and append to candidates list."""
-    start = len(candidates)
-
     for raw in images.get('posters', []):
         entry = _make_entry(raw, _IMG_W500)
         if not entry:
             continue
         lang = raw.get('iso_639_1')
         if (lang is None or lang == 'xx') and cat_kart:
-            entry.update(art_type='keyart', column='c06', season=season,
-                         bucket=(bucket_key, 'keyart'))
+            entry.update(art_type='keyart', column='c06', season=season)
         else:
-            entry.update(art_type='poster', column='c06', season=season,
-                         bucket=(bucket_key, 'poster'))
+            entry.update(art_type='poster', column='c06', season=season)
         candidates.append(entry)
 
     for raw in images.get('backdrops', []):
@@ -101,19 +98,16 @@ def _classify_images(candidates, images, bucket_key, season, user_lang,
             continue
         lang = raw.get('iso_639_1')
         if lang and lang != 'xx' and cat_land:
-            entry.update(art_type='landscape', column='c06', season=season,
-                         bucket=(bucket_key, 'landscape'))
+            entry.update(art_type='landscape', column='c06', season=season)
         else:
-            entry.update(art_type='fanart', column='c11', season=season,
-                         bucket=(bucket_key, 'fanart'))
+            entry.update(art_type='fanart', column='c11', season=season)
         candidates.append(entry)
 
     for raw in images.get('logos', []):
         entry = _make_entry(raw, _IMG_W500)
         if not entry:
             continue
-        entry.update(art_type='clearlogo', column='c06', season=season,
-                     bucket=(bucket_key, 'clearlogo'))
+        entry.update(art_type='clearlogo', column='c06', season=season)
         candidates.append(entry)
 
     for art_type in ('banner', 'clearart', 'characterart'):
@@ -121,56 +115,55 @@ def _classify_images(candidates, images, bucket_key, season, user_lang,
             entry = _make_entry(raw, _IMG_W500)
             if not entry:
                 continue
-            entry.update(art_type=art_type, column='c06', season=season,
-                         bucket=(bucket_key, art_type))
+            entry.update(art_type=art_type, column='c06', season=season)
             candidates.append(entry)
 
     for raw in images.get('landscape', []):
         entry = _make_entry(raw, _IMG_W780)
         if not entry:
             continue
-        entry.update(art_type='landscape', column='c06', season=season,
-                     bucket=(bucket_key, 'landscape'))
+        entry.update(art_type='landscape', column='c06', season=season)
         candidates.append(entry)
 
-    for art in ('poster', 'landscape', 'clearlogo', 'banner', 'clearart'):
-        bk = (bucket_key, art)
-        _sort_bucket_slice(candidates, start, bk, user_lang)
+
+def _type_cap(available):
+    """Limit how many of one type get priority. Grows slowly with count."""
+    if available <= _SPARSE_THRESHOLD:
+        return available
+    return _SPARSE_THRESHOLD + int(sqrt(available))
 
 
 def _select(entries, byte_budget):
-    """Sparse-first, then greedy fill by score within byte budget."""
+    """Pick art fairly across types, then fill the rest by quality.
+
+    Each type gets a small share (priority pool). Whatever budget
+    remains is filled with the best-scoring leftovers, usually posters.
+
+    """
     if not entries:
         return []
 
-    buckets = {}
-    for entry in entries:
-        buckets.setdefault(entry['bucket'], []).append(entry)
+    by_type = {}
+    for e in entries:
+        by_type.setdefault(e['art_type'], []).append(e)
 
-    selected = []
+    priority = []
     overflow = []
-    for bucket_entries in buckets.values():
-        if len(bucket_entries) <= _SPARSE_THRESHOLD:
-            bucket_entries.sort(key=lambda e: e['score'], reverse=True)
-            selected.extend(bucket_entries)
-        else:
-            overflow.extend(bucket_entries)
+    for type_entries in by_type.values():
+        type_entries.sort(key=lambda e: e['score'], reverse=True)
+        cap = _type_cap(len(type_entries))
+        priority.extend(type_entries[:cap])
+        overflow.extend(type_entries[cap:])
 
-    used = sum(_byte_cost(e) for e in selected)
+    priority.sort(key=lambda e: e['score'], reverse=True)
+    selected = []
+    used = 0
+    for e in priority:
+        cost = _byte_cost(e)
+        if used + cost <= byte_budget:
+            selected.append(e)
+            used += cost
 
-    # If sparse alone exceeds budget, trim by score
-    if used > byte_budget:
-        selected.sort(key=lambda e: e['score'], reverse=True)
-        kept = []
-        used = 0
-        for e in selected:
-            cost = _byte_cost(e)
-            if used + cost <= byte_budget:
-                kept.append(e)
-                used += cost
-        return kept
-
-    # Fill remaining by score
     overflow.sort(key=lambda e: e['score'], reverse=True)
     for e in overflow:
         cost = _byte_cost(e)
@@ -184,7 +177,7 @@ def _select(entries, byte_budget):
 def _byte_cost(entry):
     """XML serialization cost for one image entry."""
     if entry['column'] == 'c11':
-        # <thumb colors="" preview="">URL</thumb>
+        # <thumb colors="" preview="">URL</thumb>\n
         # setAvailableFanart only receives {'image': url}, Kodi stores preview=""
         return 36 + len(entry['url'])
     # <thumb spoof="" cache="" [season="N" type="season" ]aspect="TYPE" preview="PREVIEW">URL</thumb>
@@ -243,18 +236,6 @@ def _make_entry(raw_image, preview_base):
         'width': raw_image.get('width') or 0,
         'height': raw_image.get('height') or 0,
     }
-
-
-def _sort_bucket_slice(candidates, start, bucket_key, user_lang):
-    """Sort entries within a bucket by language, scanning only from start."""
-    indices = [i for i in range(start, len(candidates))
-               if candidates[i].get('bucket') == bucket_key]
-    if not indices:
-        return
-    subset = [candidates[i] for i in indices]
-    subset.sort(key=lambda e: _lang_sort_key(e.get('language'), user_lang))
-    for idx, i in enumerate(indices):
-        candidates[i] = subset[idx]
 
 
 def _lang_sort_key(lang, user_lang):
