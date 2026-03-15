@@ -11,7 +11,7 @@ from xbmcaddon import Addon
 ADDON = Addon()
 
 API_HEADERS = {
-    'User-Agent': 'metadata.tvshows.tmdb.python3',
+    'User-Agent': ADDON.getAddonInfo('id'),
     'Accept': 'application/json',
 }
 
