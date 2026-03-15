@@ -7,10 +7,7 @@ quality tier (voted+HD > voted > unvoted), and limited to byte
 budgets (c06/c11) to enforce MySQL TEXT limit.
 """
 
-
-_IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
-_IMG_W500 = 'https://image.tmdb.org/t/p/w500'
-_IMG_W780 = 'https://image.tmdb.org/t/p/w780'
+from lib.api.tmdb import get_image_base
 
 # MySQL TEXT = 65,535 bytes
 _C06_BUDGET = 64000
@@ -81,8 +78,12 @@ def set_artwork(li, show_info, settings):
 
 def _classify_images(candidates, images, season, cat_kart, cat_land):
     """Classify images and append to candidates list."""
+    base = get_image_base()
+    w500 = base + 'w500'
+    w780 = base + 'w780'
+
     for raw in images.get('posters', []):
-        entry = _make_entry(raw, _IMG_W500)
+        entry = _make_entry(raw, base, w500)
         if not entry:
             continue
         lang = raw.get('iso_639_1')
@@ -93,7 +94,7 @@ def _classify_images(candidates, images, season, cat_kart, cat_land):
         candidates.append(entry)
 
     for raw in images.get('backdrops', []):
-        entry = _make_entry(raw, _IMG_W780)
+        entry = _make_entry(raw, base, w780)
         if not entry:
             continue
         lang = raw.get('iso_639_1')
@@ -104,7 +105,7 @@ def _classify_images(candidates, images, season, cat_kart, cat_land):
         candidates.append(entry)
 
     for raw in images.get('logos', []):
-        entry = _make_entry(raw, _IMG_W500)
+        entry = _make_entry(raw, base, w500)
         if not entry:
             continue
         entry.update(art_type='clearlogo', column='c06', season=season)
@@ -112,14 +113,14 @@ def _classify_images(candidates, images, season, cat_kart, cat_land):
 
     for art_type in ('banner', 'clearart', 'characterart'):
         for raw in images.get(art_type, []):
-            entry = _make_entry(raw, _IMG_W500)
+            entry = _make_entry(raw, base, w500)
             if not entry:
                 continue
             entry.update(art_type=art_type, column='c06', season=season)
             candidates.append(entry)
 
     for raw in images.get('landscape', []):
-        entry = _make_entry(raw, _IMG_W780)
+        entry = _make_entry(raw, base, w780)
         if not entry:
             continue
         entry.update(art_type='landscape', column='c06', season=season)
@@ -215,7 +216,7 @@ def _score(entry, prefer_maxres=False):
     return (tier, pixels, va, vc)
 
 
-def _make_entry(raw_image, preview_base):
+def _make_entry(raw_image, img_base, preview_base):
     """Convert a raw image dict into a candidate entry."""
     path = raw_image.get('file_path')
     if not path or path.endswith('.svg'):
@@ -224,7 +225,7 @@ def _make_entry(raw_image, preview_base):
         url = path
         preview = path.replace('/fanart/', '/preview/', 1)
     else:
-        url = '{}{}'.format(_IMG_ORIGINAL, path)
+        url = '{}original{}'.format(img_base, path)
         preview = '{}{}'.format(preview_base, path)
     return {
         'url': url,

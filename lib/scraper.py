@@ -12,7 +12,7 @@ import xbmcplugin
 from lib import log
 from lib.artwork import set_artwork
 from lib.api.fanarttv import merge_fanarttv_artwork
-from lib.api.tmdb import TmdbApi
+from lib.api.tmdb import TmdbApi, get_image_base
 from lib.api.imdb import get_rating as imdb_rating, check_update as imdb_check
 from lib.api.trakt import get_show_rating as trakt_show, \
     get_episode_rating as trakt_episode, \
@@ -111,6 +111,7 @@ def _find(handle, api, params, _settings):
             show.get('origin_country', []), country_hint,
         )
     results.sort(key=lambda s: s['_relevance'], reverse=True)
+    img_base = get_image_base()
 
     for show in results:
         name = show.get('name', '')
@@ -139,9 +140,9 @@ def _find(handle, api, params, _settings):
         poster = show.get('poster_path')
         if poster:
             vtag.addAvailableArtwork(
-                'https://image.tmdb.org/t/p/original{}'.format(poster),
+                '{}original{}'.format(img_base, poster),
                 arttype='poster',
-                preview='https://image.tmdb.org/t/p/w500{}'.format(poster),
+                preview='{}w500{}'.format(img_base, poster),
             )
         li.setProperty('relevance', str(show['_relevance']))
         xbmcplugin.addDirectoryItem(
@@ -543,9 +544,7 @@ def _apply_episode_grouping(api, group_id, episodes):
 def _make_actor(member):
     thumb = ''
     if member.get('profile_path'):
-        thumb = 'https://image.tmdb.org/t/p/original{}'.format(
-            member['profile_path']
-        )
+        thumb = '{}original{}'.format(get_image_base(), member['profile_path'])
     return xbmc.Actor(
         member.get('name', ''), member.get('character', ''),
         member.get('order', 0), thumb,
@@ -777,13 +776,14 @@ def _populate_episode(li, ep, season_num, episode_num,
             vtag.setRating(imdb[0], imdb[1], 'imdb', default == 'IMDb')
 
     # Stills
+    img_base = get_image_base()
     for still in ep.get('images', {}).get('stills', []):
         path = still.get('file_path')
         if path and not path.endswith('.svg'):
             vtag.addAvailableArtwork(
-                'https://image.tmdb.org/t/p/original{}'.format(path),
+                '{}original{}'.format(img_base, path),
                 arttype='thumb',
-                preview='https://image.tmdb.org/t/p/w780{}'.format(path),
+                preview='{}w780{}'.format(img_base, path),
             )
 
     # Crew (deduplicated, matching show-level pattern)
