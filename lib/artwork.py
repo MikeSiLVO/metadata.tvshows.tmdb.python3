@@ -7,18 +7,18 @@ quality tier (voted+HD > voted > unvoted), and limited to byte
 budgets (c06/c11) to enforce MySQL TEXT limit.
 """
 
-from math import sqrt
 
 _IMG_ORIGINAL = 'https://image.tmdb.org/t/p/original'
 _IMG_W500 = 'https://image.tmdb.org/t/p/w500'
 _IMG_W780 = 'https://image.tmdb.org/t/p/w780'
 
-# MySQL TEXT = 65,535 bytes; 5K margin for safety
-_C06_BUDGET = 60000
-_C11_BUDGET = 60000
+# MySQL TEXT = 65,535 bytes
+_C06_BUDGET = 64000
+_C11_BUDGET = 64000
 _C11_WRAPPER = 17  # <fanart></fanart>
 
-_SPARSE_THRESHOLD = 3
+_SEASON_MIN = 2
+_SHOW_MIN = 10
 _TEXT_BEARING = frozenset(('poster', 'landscape', 'clearlogo', 'banner', 'clearart'))
 _HD_PIXELS = 1920 * 1080
 
@@ -126,34 +126,33 @@ def _classify_images(candidates, images, season, cat_kart, cat_land):
         candidates.append(entry)
 
 
-def _type_cap(available):
-    """Limit how many of one type get priority. Grows slowly with count."""
-    if available <= _SPARSE_THRESHOLD:
-        return available
-    return _SPARSE_THRESHOLD + int(sqrt(available))
-
-
 def _select(entries, byte_budget):
-    """Pick art fairly across types, then fill the rest by quality.
+    """Pick the best art per type per season, then fill by quality.
 
-    Each type gets a small share (priority pool). Whatever budget
-    remains is filled with the best-scoring leftovers, usually posters.
+    Every (art_type, season) group gets up to 2 entries in the priority
+    pool so each season has choices. Show-only types get up to 10.
+    Remaining budget fills with the best-scoring leftovers.
 
     """
     if not entries:
         return []
 
-    by_type = {}
+    # Group by (art_type, season)
+    groups = {}
     for e in entries:
-        by_type.setdefault(e['art_type'], []).append(e)
+        groups.setdefault((e['art_type'], e['season']), []).append(e)
 
     priority = []
     overflow = []
-    for type_entries in by_type.values():
-        type_entries.sort(key=lambda e: e['score'], reverse=True)
-        cap = _type_cap(len(type_entries))
-        priority.extend(type_entries[:cap])
-        overflow.extend(type_entries[cap:])
+    for (_, season), group in groups.items():
+        group.sort(key=lambda e: e['score'], reverse=True)
+        if season is None:
+            cap = _SHOW_MIN
+        else:
+            cap = _SEASON_MIN
+        cap = min(cap, len(group))
+        priority.extend(group[:cap])
+        overflow.extend(group[cap:])
 
     priority.sort(key=lambda e: e['score'], reverse=True)
     selected = []
