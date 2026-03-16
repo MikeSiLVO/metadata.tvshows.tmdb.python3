@@ -199,15 +199,16 @@ def _getdetails(handle, api, params, settings):
         _fail(handle)
         return
 
-    merge_fanarttv_artwork(show, settings)
-    art_cache.store(show_id, show)
-
     ep_group_data = None
     if ep_grouping:
         group = api.get_episode_group(ep_grouping)
         if group:
             ep_group_data = group.get('groups', [])
             log.debug('episode group: {} parts'.format(len(ep_group_data)))
+            _add_season_stubs(show, ep_group_data)
+
+    merge_fanarttv_artwork(show, settings)
+    art_cache.store(show_id, show)
 
     li = xbmcgui.ListItem(show.get('name', ''), offscreen=True)
     _populate_show(li, show, settings, ep_grouping, named_seasons,
@@ -578,6 +579,20 @@ def _apply_episode_grouping(api, group_id, episodes):
     if missing:
         log.debug('episode group: {} episodes not in cache'.format(missing))
     return remapped if remapped else episodes
+
+
+def _add_season_stubs(show, ep_group_data):
+    """Add empty season entries for episode group parts missing from TMDB."""
+    existing = {s.get('season_number', 0) for s in show.get('seasons', [])}
+    added = 0
+    for grp in ep_group_data:
+        snum = grp.get('order', 0)
+        if snum not in existing:
+            show.setdefault('seasons', []).append({'season_number': snum})
+            existing.add(snum)
+            added += 1
+    if added:
+        log.debug('episode group: added {} season stubs'.format(added))
 
 
 def _make_actor(member):
